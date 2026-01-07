@@ -4,7 +4,8 @@ pipeline {
   environment {
     AWS_REGION = "us-east-1"
     ECR_REPO   = "test-pipeline-repo"
-    COMMIT_ID  = "${GIT_COMMIT}"
+    ACCOUNT_ID = "756827365110"
+    IMAGE_TAG  = "${GIT_COMMIT}"
   }
 
   stages {
@@ -17,7 +18,9 @@ pipeline {
 
     stage("Build Docker Image") {
       steps {
-        sh "docker build -t $ECR_REPO:$COMMIT_ID ."
+        sh '''
+        docker build -t $ECR_REPO:$IMAGE_TAG .
+        '''
       }
     }
 
@@ -30,7 +33,7 @@ pipeline {
           sh '''
           aws ecr get-login-password --region $AWS_REGION | \
           docker login --username AWS --password-stdin \
-          $(aws sts get-caller-identity --query Account --output text).dkr.ecr.$AWS_REGION.amazonaws.com
+          $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
           '''
         }
       }
@@ -39,14 +42,21 @@ pipeline {
     stage("Push Image") {
       steps {
         sh '''
-        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-
-        docker tag $ECR_REPO:$COMMIT_ID \
-          $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$COMMIT_ID
+        docker tag $ECR_REPO:$IMAGE_TAG \
+          $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
 
         docker push \
-          $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$COMMIT_ID
+          $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
         '''
+      }
+    }
+
+    stage("Trigger Infra Deployment") {
+      steps {
+        build job: 'infra-pipeline',
+          parameters: [
+            string(name: 'COMMIT_ID', value: IMAGE_TAG)
+          ]
       }
     }
   }
